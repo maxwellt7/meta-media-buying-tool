@@ -23,7 +23,15 @@ const STORAGE_KEY = 'gomarble_config';
 function loadSavedConfig() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Migrate: last_7d default was too narrow, upgrade to last_30d
+      if (parsed.datePreset === 'last_7d') {
+        parsed.datePreset = 'last_30d';
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+      }
+      return parsed;
+    }
   } catch { /* ignore parse errors */ }
   return null;
 }
@@ -38,9 +46,7 @@ let _config = {
   mcpServerUrl: GOMARBLE_SSE_ENDPOINT,
 };
 
-if (savedConfig) {
-  console.log(`[GoMarble] Restored saved config: mode=${_config.mode}, account=${_config.accountId || 'none'}`);
-}
+console.log(`[GoMarble] Config: mode=${_config.mode}, account=${_config.accountId || 'none'}, datePreset=${_config.datePreset}`);
 
 export function configureGoMarble(overrides) {
   _config = { ..._config, ...overrides };
@@ -312,6 +318,37 @@ export async function getAdCreativeDetails(creativeId) {
 // ─── Batch / Aggregate Fetchers ──────────────────────────────────────────────
 
 /**
+ * Fetch account/campaign/adset insights in parallel for a given date preset.
+ */
+async function fetchInsightsByLevel(accountId, datePreset) {
+  const [accountResult, campaignResult, adsetResult] = await Promise.all([
+    mcpCall('facebook_get_adaccount_insights', {
+      act_id: accountId,
+      fields: INSIGHT_FIELDS,
+      date_preset: datePreset,
+      level: 'account',
+    }),
+    mcpCall('facebook_get_adaccount_insights', {
+      act_id: accountId,
+      fields: [...INSIGHT_FIELDS, 'campaign_id', 'campaign_name'],
+      date_preset: datePreset,
+      level: 'campaign',
+    }),
+    mcpCall('facebook_get_adaccount_insights', {
+      act_id: accountId,
+      fields: [...INSIGHT_FIELDS, 'adset_id', 'adset_name', 'campaign_id', 'campaign_name'],
+      date_preset: datePreset,
+      level: 'adset',
+    }),
+  ]);
+  return {
+    accountRows: accountResult?.data || [],
+    campaignRows: campaignResult?.data || [],
+    adsetRows: adsetResult?.data || [],
+  };
+}
+
+/**
  * Fetch full account data using GoMarble's insights API with level breakdowns.
  * Uses 3 parallel calls (account / campaign / adset level) instead of nested per-entity calls.
  */
@@ -320,33 +357,28 @@ export async function fetchFullAccountData(accountId = _config.accountId) {
     return fetchFullAccountDataMock(accountId);
   }
 
-  console.log(`[GoMarble] Fetching full account data for ${accountId}...`);
+  const datePreset = _config.datePreset || 'last_30d';
+  console.log(`[GoMarble] Fetching full account data for ${accountId} (${datePreset})...`);
 
-  // Parallel fetch: account-level, campaign-level, and adset-level insights
-  const [accountResult, campaignResult, adsetResult] = await Promise.all([
-    mcpCall('facebook_get_adaccount_insights', {
-      act_id: accountId,
-      fields: INSIGHT_FIELDS,
-      date_preset: _config.datePreset,
-      level: 'account',
-    }),
-    mcpCall('facebook_get_adaccount_insights', {
-      act_id: accountId,
-      fields: [...INSIGHT_FIELDS, 'campaign_id', 'campaign_name'],
-      date_preset: _config.datePreset,
-      level: 'campaign',
-    }),
-    mcpCall('facebook_get_adaccount_insights', {
-      act_id: accountId,
-      fields: [...INSIGHT_FIELDS, 'adset_id', 'adset_name', 'campaign_id', 'campaign_name'],
-      date_preset: _config.datePreset,
-      level: 'adset',
-    }),
-  ]);
+  let { accountRows, campaignRows, adsetRows } = await fetchInsightsByLevel(accountId, datePreset);
 
-  const accountRows = accountResult?.data || [];
-  const campaignRows = campaignResult?.data || [];
-  const adsetRows = adsetResult?.data || [];
+  // Auto-widen: if selected range returned empty, try last_30d then last_90d
+  if (accountRows.length === 0) {
+    const fallbacks = ['last_30d', 'last_90d'].filter(p => p !== datePreset);
+    for (const fallback of fallbacks) {
+      console.log(`[GoMarble] No data for ${datePreset}, trying ${fallback}...`);
+      const wider = await fetchInsightsByLevel(accountId, fallback);
+      if (wider.accountRows.length > 0) {
+        accountRows = wider.accountRows;
+        campaignRows = wider.campaignRows;
+        adsetRows = wider.adsetRows;
+        // Update config so subsequent calls use the working range
+        _config.datePreset = fallback;
+        console.log(`[GoMarble] Found data with ${fallback}`);
+        break;
+      }
+    }
+  }
 
   console.log(`[GoMarble] Got ${accountRows.length} account, ${campaignRows.length} campaign, ${adsetRows.length} adset rows`);
 

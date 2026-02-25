@@ -289,9 +289,18 @@ app.post('/api/mcp/reconnect', (req, res) => {
 // Serve static frontend in production
 const distPath = join(__serverDirname, 'dist');
 if (existsSync(distPath)) {
-  app.use(express.static(distPath));
+  // Serve index.html with no-cache so new deploys take effect immediately
+  const indexPath = join(distPath, 'index.html');
+  app.use(express.static(distPath, {
+    setHeaders: (res, filePath) => {
+      if (filePath === indexPath) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      }
+    },
+  }));
   app.get('/{*splat}', (req, res) => {
-    res.sendFile(join(distPath, 'index.html'));
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(indexPath);
   });
 }
 
