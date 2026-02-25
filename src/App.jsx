@@ -78,7 +78,7 @@ function deepMerge(defaults, overrides) {
 export default function App() {
   const [activeTab, setActiveTab] = useState('command');
   const [thresholds, setThresholds] = useState(loadThresholds);
-  const [dateRange, setDateRange] = useState('last_7d');
+  const [dateRange, setDateRange] = useState(() => getConfig().datePreset || 'last_30d');
   const [rawData, setRawData] = useState(null);
   const [processedData, setProcessedData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -211,7 +211,11 @@ export default function App() {
                 onUpdate={setThresholds}
                 onRefresh={fetchData}
                 dateRange={dateRange}
-                onDateRangeChange={setDateRange}
+                onDateRangeChange={(range) => {
+                  setDateRange(range);
+                  configureGoMarble({ datePreset: range });
+                  fetchData();
+                }}
               />
             )}
 

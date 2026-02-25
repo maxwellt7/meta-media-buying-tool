@@ -81,7 +81,7 @@ export default function Settings({ thresholds, onUpdate, onRefresh, dateRange, o
           <div className="flex items-end">
             <button
               onClick={() => {
-                configureGoMarble({ mode: gmMode, apiKey: gmApiKey, accountId: gmAccountId || null });
+                configureGoMarble({ mode: gmMode, apiKey: gmApiKey, accountId: gmAccountId || null, datePreset: dateRange });
                 setGmSaved(true);
                 setTimeout(() => setGmSaved(false), 2000);
                 onRefresh();

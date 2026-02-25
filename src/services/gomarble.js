@@ -34,7 +34,7 @@ let _config = {
   mode: savedConfig?.mode || 'mock',
   apiKey: savedConfig?.apiKey || import.meta.env.VITE_GOMARBLE_API_KEY || null,
   accountId: savedConfig?.accountId || null,
-  datePreset: savedConfig?.datePreset || 'last_7d',
+  datePreset: savedConfig?.datePreset || 'last_30d',
   mcpServerUrl: GOMARBLE_SSE_ENDPOINT,
 };
 
