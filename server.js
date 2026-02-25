@@ -290,7 +290,7 @@ app.post('/api/mcp/reconnect', (req, res) => {
 const distPath = join(__serverDirname, 'dist');
 if (existsSync(distPath)) {
   app.use(express.static(distPath));
-  app.get('*', (req, res) => {
+  app.get('/{*splat}', (req, res) => {
     res.sendFile(join(distPath, 'index.html'));
   });
 }
