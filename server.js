@@ -24,6 +24,13 @@ try {
   });
 } catch { /* .env not found - use existing env vars */ }
 
+import { existsSync } from 'fs';
+import { join, dirname as pathDirname } from 'path';
+import { fileURLToPath as pathFileURLToPath } from 'url';
+
+const __serverFilename = pathFileURLToPath(import.meta.url);
+const __serverDirname = pathDirname(__serverFilename);
+
 const app = express();
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:4173'],
@@ -32,7 +39,12 @@ app.use(cors({
 }));
 app.use(express.json());
 
-const PORT = 3456;
+const PORT = process.env.PORT || 3456;
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), service: 'Meta Media Buying Tool' });
+});
 const GOMARBLE_SSE = 'https://apps.gomarble.ai/mcp-api/sse';
 let API_KEY = process.env.VITE_GOMARBLE_API_KEY || '';
 
@@ -274,7 +286,16 @@ app.post('/api/mcp/reconnect', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-app.listen(PORT, () => {
+// Serve static frontend in production
+const distPath = join(__serverDirname, 'dist');
+if (existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get('*', (req, res) => {
+    res.sendFile(join(distPath, 'index.html'));
+  });
+}
+
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 GoMarble MCP Bridge on http://localhost:${PORT}`);
   console.log(`   API Key: ${API_KEY ? '✅' : '❌ missing'}`);
   console.log(`   Mode: EventSource session per call\n`);
