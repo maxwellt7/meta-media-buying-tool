@@ -286,28 +286,18 @@ app.post('/api/mcp/reconnect', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Health check (duplicate placement to ensure Express 5 routing picks it up)
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString(), service: 'Meta Media Buying Tool' });
-});
-
 // Serve static frontend in production
 const distPath = join(__serverDirname, 'dist');
 if (existsSync(distPath)) {
-  // Serve index.html with no-cache so new deploys take effect immediately
   const indexPath = join(distPath, 'index.html');
-  app.use(express.static(distPath, {
-    setHeaders: (res, filePath) => {
-      if (filePath === indexPath) {
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      }
-    },
-  }));
-  app.get('/{*splat}', (req, res) => {
-    // Don't serve index.html for API routes or health check
-    if (req.path.startsWith('/api/') || req.path === '/health') return res.status(404).end();
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.sendFile(indexPath);
+  app.use(express.static(distPath));
+  // Catch-all for SPA — but skip API routes and health
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api/') && req.path !== '/health' && req.accepts('html')) {
+      res.sendFile(indexPath);
+    } else {
+      next();
+    }
   });
 }
 

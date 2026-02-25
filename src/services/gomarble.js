@@ -25,9 +25,9 @@ function loadSavedConfig() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      // Migrate: last_7d default was too narrow, upgrade to last_30d
-      if (parsed.datePreset === 'last_7d') {
-        parsed.datePreset = 'last_30d';
+      // Migrate: narrow defaults to last_90d for accounts with sparse data
+      if (parsed.datePreset === 'last_7d' || parsed.datePreset === 'last_30d') {
+        parsed.datePreset = 'last_90d';
         localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
       }
       return parsed;
@@ -47,8 +47,8 @@ const resolvedMode = savedConfig?.mode || (resolvedApiKey ? 'direct' : 'mock');
 let _config = {
   mode: resolvedMode,
   apiKey: resolvedApiKey,
-  accountId: savedConfig?.accountId || null,
-  datePreset: savedConfig?.datePreset || 'last_30d',
+  accountId: savedConfig?.accountId || import.meta.env.VITE_GOMARBLE_ACCOUNT_ID || null,
+  datePreset: savedConfig?.datePreset || 'last_90d',
   mcpServerUrl: GOMARBLE_SSE_ENDPOINT,
 };
 
@@ -367,7 +367,7 @@ export async function fetchFullAccountData(accountId = _config.accountId) {
     return fetchFullAccountDataMock(accountId);
   }
 
-  const datePreset = _config.datePreset || 'last_30d';
+  const datePreset = _config.datePreset || 'last_90d';
   console.log(`[GoMarble] Fetching full account data for ${accountId} (${datePreset})...`);
 
   let { accountRows, campaignRows, adsetRows } = await fetchInsightsByLevel(accountId, datePreset);
