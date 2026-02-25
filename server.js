@@ -32,8 +32,11 @@ const __serverFilename = pathFileURLToPath(import.meta.url);
 const __serverDirname = pathDirname(__serverFilename);
 
 const app = express();
-app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:4173'],
+// In production (Railway), frontend is served from same origin — no CORS needed
+// In dev, allow localhost origins
+const isProduction = process.env.NODE_ENV === 'production';
+app.use(cors(isProduction ? {} : {
+  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5180', 'http://localhost:4173'],
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));

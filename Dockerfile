@@ -9,6 +9,8 @@ COPY . .
 RUN npm run build
 
 ENV NODE_ENV=production
-EXPOSE 3456
+
+# Railway uses $PORT env var
+EXPOSE ${PORT:-3456}
 
 CMD ["node", "server.js"]
