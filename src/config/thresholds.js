@@ -12,6 +12,8 @@ const DEFAULT_THRESHOLDS = {
     breakEvenROAS: 2.0,
     monthlyBudget: 25000,
     currency: 'USD',
+    // Lead gen specific: which action_type counts as a conversion
+    leadGenConversionEvent: 'landing_page_view', // 'landing_page_view' | 'link_click' | 'lead'
   },
 
   // === KILL SIGNALS ===

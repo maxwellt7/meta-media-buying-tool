@@ -7,6 +7,7 @@ import { generateDailyBriefing } from '../services/claude';
 
 export default function CommandCenter({ data }) {
   const { actions, overallHealth, accountInsights, summary, budgetAnalysis } = data;
+  const hasData = accountInsights && (accountInsights.spend > 0 || accountInsights.impressions > 0);
   const [briefing, setBriefing] = useState(null);
   const [briefingLoading, setBriefingLoading] = useState(false);
   const briefingRequestedRef = useRef(false);
@@ -44,8 +45,8 @@ export default function CommandCenter({ data }) {
         <div className="grid grid-cols-4 gap-3">
           <MetricCard
             label="Total Spend"
-            value={formatCurrency(accountInsights?.spend, 'USD', true)}
-            subValue="Last 7 days"
+            value={hasData ? formatCurrency(accountInsights?.spend, 'USD', true) : '—'}
+            subValue={accountInsights?.dateStart ? `${accountInsights.dateStart} – ${accountInsights.dateStop}` : ''}
             trend={spendTrend ? `${getTrendIcon(spendTrend.direction)} ${spendTrend.change?.toFixed(1)}%` : null}
             trendColor={spendTrend ? getTrendColor(spendTrend.direction, true) : null}
             icon="💰"

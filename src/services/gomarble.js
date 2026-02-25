@@ -38,15 +38,25 @@ function loadSavedConfig() {
 
 const savedConfig = loadSavedConfig();
 
+const envApiKey = import.meta.env.VITE_GOMARBLE_API_KEY || null;
+const resolvedApiKey = savedConfig?.apiKey || envApiKey || null;
+
+// Auto-detect mode: if API key exists, default to 'direct' instead of 'mock'
+const resolvedMode = savedConfig?.mode || (resolvedApiKey ? 'direct' : 'mock');
+
 let _config = {
-  mode: savedConfig?.mode || 'mock',
-  apiKey: savedConfig?.apiKey || import.meta.env.VITE_GOMARBLE_API_KEY || null,
+  mode: resolvedMode,
+  apiKey: resolvedApiKey,
   accountId: savedConfig?.accountId || null,
   datePreset: savedConfig?.datePreset || 'last_30d',
   mcpServerUrl: GOMARBLE_SSE_ENDPOINT,
 };
 
-console.log(`[GoMarble] Config: mode=${_config.mode}, account=${_config.accountId || 'none'}, datePreset=${_config.datePreset}`);
+if (savedConfig) {
+  console.log(`[GoMarble] Restored config: mode=${_config.mode}, account=${_config.accountId || 'none'}, datePreset=${_config.datePreset}`);
+} else if (resolvedApiKey) {
+  console.log(`[GoMarble] Auto-detected API key, using direct mode`);
+}
 
 export function configureGoMarble(overrides) {
   _config = { ..._config, ...overrides };
@@ -380,7 +390,9 @@ export async function fetchFullAccountData(accountId = _config.accountId) {
     }
   }
 
-  console.log(`[GoMarble] Got ${accountRows.length} account, ${campaignRows.length} campaign, ${adsetRows.length} adset rows`);
+  const isEmpty = accountRows.length === 0 && campaignRows.length === 0;
+
+  console.log(`[GoMarble] Got ${accountRows.length} account, ${campaignRows.length} campaign, ${adsetRows.length} adset rows${isEmpty ? ' (EMPTY — try a longer date range)' : ''}`);
 
   // Transform GoMarble response into the structure our dashboard expects
   const accountInsights = accountRows.length > 0 ? transformInsights(accountRows[0]) : null;
@@ -418,12 +430,18 @@ export async function fetchFullAccountData(accountId = _config.accountId) {
       insights: accountInsights,
     },
     campaigns,
+    isEmpty,
+    datePreset: _config.datePreset,
     fetchedAt: new Date().toISOString(),
   };
 }
 
 /**
  * Transform a GoMarble insights row into our normalized format.
+ * Handles both ecommerce (purchase/ROAS) and lead gen (link_click, landing_page_view) accounts.
+ * All numeric fields from GoMarble come as strings — parse them safely.
+ * @param {object} row - Raw insights row from GoMarble API
+ * @returns {object|null} Normalized insights object
  */
 function transformInsights(row) {
   if (!row) return null;
@@ -434,35 +452,62 @@ function transformInsights(row) {
   const reach = parseInt(row.reach) || 0;
   const frequency = parseFloat(row.frequency) || 0;
 
-  // Extract conversions from actions
-  const actions = row.actions || [];
-  const purchaseAction = actions.find(a => a.action_type === 'purchase' || a.action_type === 'offsite_conversion.fb_pixel_purchase');
-  const conversions = purchaseAction ? parseInt(purchaseAction.value) : 0;
+  // Extract conversions from actions array (GoMarble returns action_type/value pairs)
+  const actions = Array.isArray(row.actions) ? row.actions : [];
 
-  // Lead conversions fallback
-  const leadAction = actions.find(a => a.action_type === 'lead' || a.action_type === 'offsite_conversion.fb_pixel_lead');
-  const leads = leadAction ? parseInt(leadAction.value) : 0;
-  const totalConversions = conversions || leads || 0;
+  // Purchase conversions (ecommerce)
+  const purchaseAction = actions.find(a =>
+    a.action_type === 'purchase' || a.action_type === 'offsite_conversion.fb_pixel_purchase'
+  );
+  const purchases = purchaseAction ? parseInt(purchaseAction.value) || 0 : 0;
+
+  // Lead conversions
+  const leadAction = actions.find(a =>
+    a.action_type === 'lead' || a.action_type === 'offsite_conversion.fb_pixel_lead'
+  );
+  const leads = leadAction ? parseInt(leadAction.value) || 0 : 0;
+
+  // Lead gen fallback: use landing_page_view or link_click as conversion proxy
+  const landingPageAction = actions.find(a => a.action_type === 'landing_page_view');
+  const linkClickAction = actions.find(a => a.action_type === 'link_click');
+  const landingPageViews = landingPageAction ? parseInt(landingPageAction.value) || 0 : 0;
+  const linkClicks = linkClickAction ? parseInt(linkClickAction.value) || 0 : 0;
+
+  // Use the best available conversion metric
+  const totalConversions = purchases || leads || landingPageViews || 0;
 
   // Revenue from purchase_roas
-  const roas = row.purchase_roas ? parseFloat(Array.isArray(row.purchase_roas) ? row.purchase_roas[0]?.value : row.purchase_roas) : null;
+  const roas = row.purchase_roas
+    ? parseFloat(Array.isArray(row.purchase_roas) ? row.purchase_roas[0]?.value : row.purchase_roas)
+    : null;
   const revenue = roas && spend ? spend * roas : 0;
 
   // CPA from cost_per_action_type
-  const cpas = row.cost_per_action_type || [];
-  const purchaseCpa = cpas.find(a => a.action_type === 'purchase' || a.action_type === 'offsite_conversion.fb_pixel_purchase');
-  const leadCpa = cpas.find(a => a.action_type === 'lead' || a.action_type === 'offsite_conversion.fb_pixel_lead');
+  const cpas = Array.isArray(row.cost_per_action_type) ? row.cost_per_action_type : [];
+  const purchaseCpa = cpas.find(a =>
+    a.action_type === 'purchase' || a.action_type === 'offsite_conversion.fb_pixel_purchase'
+  );
+  const leadCpa = cpas.find(a =>
+    a.action_type === 'lead' || a.action_type === 'offsite_conversion.fb_pixel_lead'
+  );
+  const landingPageCpa = cpas.find(a => a.action_type === 'landing_page_view');
+  const linkClickCpa = cpas.find(a => a.action_type === 'link_click');
 
   let cpa = null;
   if (purchaseCpa?.value != null) cpa = parseFloat(purchaseCpa.value);
   else if (leadCpa?.value != null) cpa = parseFloat(leadCpa.value);
+  else if (landingPageCpa?.value != null) cpa = parseFloat(landingPageCpa.value);
+  else if (linkClickCpa?.value != null) cpa = parseFloat(linkClickCpa.value);
   else if (totalConversions > 0 && spend > 0) cpa = spend / totalConversions;
 
-  // Video metrics
+  // Video metrics (may come as arrays with {action_type, value} or plain numbers)
   const v3s = row.video_3_sec_watched_actions;
   const v15s = row.video_15_sec_watched_actions;
   const video3sViews = Array.isArray(v3s) ? parseInt(v3s[0]?.value || 0) : parseInt(v3s || 0);
   const video15sViews = Array.isArray(v15s) ? parseInt(v15s[0]?.value || 0) : parseInt(v15s || 0);
+
+  // Determine date range days for synthetic daily breakdown
+  const days = getDaysBetween(row.date_start, row.date_stop) || 7;
 
   return {
     spend,
@@ -475,17 +520,33 @@ function transformInsights(row) {
     ctr: parseFloat(row.ctr) || (impressions > 0 ? (clicks / impressions) * 100 : 0),
     cpc: parseFloat(row.cpc) || (clicks > 0 ? spend / clicks : null),
     cpm: parseFloat(row.cpm) || (impressions > 0 ? (spend / impressions) * 1000 : null),
-    cpa: cpa ? parseFloat(cpa) : null,
+    cpa: cpa != null ? parseFloat(cpa) : null,
     roas,
     purchase_roas: roas,
+    // Lead gen specific metrics
+    landing_page_views: landingPageViews,
+    link_clicks: linkClicks,
+    leads,
     video_3_sec_watched_actions: video3sViews,
     video_15_sec_watched_actions: video15sViews,
     cost_per_action_type: cpas,
+    actions, // preserve raw actions for debugging
     date_start: row.date_start,
     date_stop: row.date_stop,
-    // Generate synthetic daily breakdown from the period data (GoMarble doesn't return daily in basic call)
-    daily: generateSyntheticDaily(7, { spend, conversions: totalConversions, ctr: parseFloat(row.ctr) || 0, cpm: parseFloat(row.cpm) || 0, roas }),
+    daily: generateSyntheticDaily(days, { spend, conversions: totalConversions, ctr: parseFloat(row.ctr) || 0, cpm: parseFloat(row.cpm) || 0, roas }),
   };
+}
+
+/**
+ * Calculate days between two date strings.
+ * @param {string} start - ISO date string (YYYY-MM-DD)
+ * @param {string} end - ISO date string (YYYY-MM-DD)
+ * @returns {number|null}
+ */
+function getDaysBetween(start, end) {
+  if (!start || !end) return null;
+  const diff = new Date(end) - new Date(start);
+  return Math.max(1, Math.round(diff / (1000 * 60 * 60 * 24)));
 }
 
 /**

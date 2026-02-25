@@ -286,6 +286,11 @@ app.post('/api/mcp/reconnect', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Health check (duplicate placement to ensure Express 5 routing picks it up)
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), service: 'Meta Media Buying Tool' });
+});
+
 // Serve static frontend in production
 const distPath = join(__serverDirname, 'dist');
 if (existsSync(distPath)) {
@@ -299,6 +304,8 @@ if (existsSync(distPath)) {
     },
   }));
   app.get('/{*splat}', (req, res) => {
+    // Don't serve index.html for API routes or health check
+    if (req.path.startsWith('/api/') || req.path === '/health') return res.status(404).end();
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(indexPath);
   });
@@ -306,6 +313,6 @@ if (existsSync(distPath)) {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 GoMarble MCP Bridge on http://localhost:${PORT}`);
-  console.log(`   API Key: ${API_KEY ? '✅' : '❌ missing'}`);
+  console.log(`   API Key: ${API_KEY ? '✅ configured' : '❌ missing'}`);
   console.log(`   Mode: EventSource session per call\n`);
 });

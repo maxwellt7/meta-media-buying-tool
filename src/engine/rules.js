@@ -100,6 +100,23 @@ export function checkScaleSignals(entity, thresholds) {
 
   // SCALE-1: Stable CPA/ROAS for 7-14 days
   const isStable = entity.daysStable >= t.stabilityDaysRequired;
+  const isLeadGen = profile.businessType === 'leadgen';
+
+  // For lead gen: scale if CPA is at/below target; for ecommerce: scale if ROAS at/above target
+  if (isStable && isLeadGen && entity.cpa != null && entity.cpa <= profile.targetCPA) {
+    const newBudget = (entity.dailyBudget || entity.spend / 7) * (1 + t.maxBudgetIncreasePercent);
+    signals.push({
+      signal: 'SCALE',
+      priority: 1,
+      urgency: 'GREEN',
+      reason: `Stable performance for ${entity.daysStable} days with CPA at ${formatDollar(entity.cpa)} (target: ${formatDollar(profile.targetCPA)})`,
+      metric: 'stability_cpa',
+      currentValue: entity.daysStable,
+      threshold: t.stabilityDaysRequired,
+      action: `Increase daily budget from ${formatDollar(entity.dailyBudget)} → ${formatDollar(newBudget)} (+20%)`,
+      expectedImpact: `~${Math.round((newBudget - (entity.dailyBudget || 0)) / (entity.cpa || 1))} additional daily conversions`,
+    });
+  }
 
   if (isStable && entity.roas != null && profile.targetROAS > 0 && entity.roas >= profile.targetROAS) {
     const newBudget = (entity.dailyBudget || entity.spend / 7) * (1 + t.maxBudgetIncreasePercent);

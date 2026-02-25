@@ -35,10 +35,7 @@ class ErrorBoundary extends Component {
 const envKey = import.meta.env.VITE_GOMARBLE_API_KEY;
 const currentConfig = getConfig();
 if (envKey && !currentConfig.apiKey) {
-  console.log('GoMarble API key loaded from environment');
   configureGoMarble({ apiKey: envKey });
-} else {
-  console.log(`GoMarble config: mode=${currentConfig.mode}, account=${currentConfig.accountId || 'none'}`);
 }
 
 const TABS = [
@@ -83,23 +80,32 @@ export default function App() {
   const [processedData, setProcessedData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [emptyDataWarning, setEmptyDataWarning] = useState(null);
   const [lastRefresh, setLastRefresh] = useState(null);
 
-  // Fetch data from GoMarble
-  const fetchData = useCallback(async () => {
+  /**
+   * Fetch data from GoMarble. Updates datePreset in config before fetching.
+   */
+  const fetchData = useCallback(async (overrideDateRange) => {
+    const preset = overrideDateRange || dateRange;
+    configureGoMarble({ datePreset: preset });
     setLoading(true);
     setError(null);
+    setEmptyDataWarning(null);
     try {
       const data = await fetchFullAccountData();
       setRawData(data);
       setLastRefresh(new Date());
+      if (data.isEmpty) {
+        setEmptyDataWarning(`No data found for "${getDatePresetLabel(preset)}". Try a longer date range (e.g. Last 90 Days).`);
+      }
     } catch (err) {
       console.error('Error fetching account data:', err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dateRange]);
 
   // Process data through decision engine whenever raw data or thresholds change
   useEffect(() => {
@@ -182,6 +188,25 @@ export default function App() {
           </div>
         )}
 
+        {/* Empty Data Warning */}
+        {emptyDataWarning && (
+          <div className="card p-4 mb-4 border-l-[3px] border-l-[#f59e0b]" style={{ background: '#f59e0b11' }}>
+            <div className="flex items-center gap-3">
+              <span className="text-lg">📭</span>
+              <div>
+                <div className="text-sm font-medium text-[#f59e0b]">No Data for This Period</div>
+                <div className="text-xs text-[var(--color-text-secondary)]">{emptyDataWarning}</div>
+              </div>
+              <button
+                onClick={() => { setDateRange('last_90d'); fetchData('last_90d'); }}
+                className="ml-auto px-3 py-1.5 rounded-lg bg-[#f59e0b] text-white text-xs font-medium hover:opacity-90"
+              >
+                Try Last 90 Days
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Error State */}
         {error && !processedData && (
           <div className="card p-8 text-center">
@@ -211,10 +236,9 @@ export default function App() {
                 onUpdate={setThresholds}
                 onRefresh={fetchData}
                 dateRange={dateRange}
-                onDateRangeChange={(range) => {
-                  setDateRange(range);
-                  configureGoMarble({ datePreset: range });
-                  fetchData();
+                onDateRangeChange={(newRange) => {
+                  setDateRange(newRange);
+                  fetchData(newRange);
                 }}
               />
             )}
