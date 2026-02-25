@@ -94,13 +94,19 @@ export default function App() {
     setEmptyDataWarning(null);
     try {
       const data = await fetchFullAccountData();
+      console.log('[App] fetchFullAccountData result:', {
+        hasAccount: !!data?.account,
+        accountSpend: data?.account?.insights?.spend,
+        campaignCount: data?.campaigns?.length,
+        fetchedAt: data?.fetchedAt,
+      });
       setRawData(data);
       setLastRefresh(new Date());
       if (data.isEmpty) {
         setEmptyDataWarning(`No data found for "${getDatePresetLabel(preset)}". Try a longer date range (e.g. Last 90 Days).`);
       }
     } catch (err) {
-      console.error('Error fetching account data:', err);
+      console.error('[App] Error fetching account data:', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -110,9 +116,19 @@ export default function App() {
   // Process data through decision engine whenever raw data or thresholds change
   useEffect(() => {
     if (rawData) {
-      const processed = processAccountData(rawData, thresholds);
-      processed.thresholds = thresholds;
-      setProcessedData(processed);
+      try {
+        const processed = processAccountData(rawData, thresholds);
+        processed.thresholds = thresholds;
+        console.log('[App] processedData:', {
+          overallHealth: processed.overallHealth,
+          spend: processed.accountInsights?.spend,
+          roas: processed.accountInsights?.roas,
+          campaigns: processed.summary?.totalCampaigns,
+        });
+        setProcessedData(processed);
+      } catch (err) {
+        console.error('[App] processAccountData error:', err);
+      }
     }
   }, [rawData, thresholds]);
 

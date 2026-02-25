@@ -180,7 +180,7 @@ function getTTLForTool(toolName) {
 
 const INSIGHT_FIELDS = [
   'spend', 'impressions', 'clicks', 'ctr', 'cpm', 'cpc',
-  'reach', 'frequency', 'actions', 'cost_per_action_type', 'purchase_roas',
+  'reach', 'frequency', 'actions', 'action_values', 'cost_per_action_type', 'purchase_roas',
 ];
 
 // ─── Account-Level Endpoints ─────────────────────────────────────────────────
@@ -476,11 +476,19 @@ function transformInsights(row) {
   // Use the best available conversion metric
   const totalConversions = purchases || leads || landingPageViews || 0;
 
-  // Revenue from purchase_roas
-  const roas = row.purchase_roas
-    ? parseFloat(Array.isArray(row.purchase_roas) ? row.purchase_roas[0]?.value : row.purchase_roas)
-    : null;
-  const revenue = roas && spend ? spend * roas : 0;
+  // Revenue: try purchase_roas first, then action_values, then compute from data
+  let roas = row.purchase_roas ? parseFloat(Array.isArray(row.purchase_roas) ? row.purchase_roas[0]?.value : row.purchase_roas) : null;
+  let revenue = 0;
+
+  // If purchase_roas is null, try to get revenue from action_values
+  const actionValues = row.action_values || [];
+  const purchaseValue = actionValues.find(a => a.action_type === 'purchase' || a.action_type === 'offsite_conversion.fb_pixel_purchase');
+  if (purchaseValue) {
+    revenue = parseFloat(purchaseValue.value) || 0;
+    if (!roas && revenue > 0 && spend > 0) roas = revenue / spend;
+  } else if (roas && spend) {
+    revenue = spend * roas;
+  }
 
   // CPA from cost_per_action_type
   const cpas = Array.isArray(row.cost_per_action_type) ? row.cost_per_action_type : [];
